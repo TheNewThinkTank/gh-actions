@@ -23,6 +23,21 @@ setup-python-uv:
     dependency-file: pyproject.toml  # or requirements.txt
 ```
 
+WIP:
+compare-pypi-versions
+
+```yaml
+  check_pypi:
+    needs: details
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare Versions
+        uses: ./github/actions/compare-versions
+        with:
+          package_name: ${{ env.PACKAGE_NAME }}
+          new_version: ${{ needs.details.outputs.new_version }}
+```
+
 <!--
 git tag -a v1.0.0 -m "Initial release of setup-python-poetry"
 git push origin v1.0.0
