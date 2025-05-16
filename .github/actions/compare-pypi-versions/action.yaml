@@ -9,11 +9,14 @@ inputs:
     required: true
 outputs:
   is_newer:
+    value: ${{ steps.compare_versions.outputs.is_newer }}
     description: Whether the new version is greater than the latest version on PyPI.
 runs:
   using: "composite"
   steps:
     - name: Fetch latest version from PyPI
+      id: fetch_latest
+      shell: bash
       run: |
         response=$(curl -s https://pypi.org/pypi/${{ inputs.package_name }}/json || echo "{}")
         latest_previous_version=$(echo $response | grep -oP '"releases":\{"\K[^"]+' | sort -rV | head -n 1)
@@ -22,7 +25,9 @@ runs:
         fi
         echo "latest_previous_version=$latest_previous_version" >> $GITHUB_ENV
 
-    - name: Compare versions
+    - name: compare_versions
+      id: compare_versions
+      shell: bash
       run: |
         if [ "$(printf '%s\n' "$latest_previous_version" "${{ inputs.new_version }}" | sort -rV | head -n 1)" != "${{ inputs.new_version }}" ] || [ "${{ inputs.new_version }}" == "$latest_previous_version" ]; then
           echo "is_newer=false" >> $GITHUB_OUTPUT
