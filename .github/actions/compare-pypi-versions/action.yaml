@@ -29,6 +29,7 @@ runs:
       id: compare_versions
       shell: bash
       run: |
+        set -x
         if [ "$(printf '%s\n' "$latest_previous_version" "${{ inputs.new_version }}" | sort -rV | head -n 1)" != "${{ inputs.new_version }}" ] || [ "${{ inputs.new_version }}" == "$latest_previous_version" ]; then
           echo "is_newer=false" >> $GITHUB_OUTPUT
         else
