@@ -33,3 +33,4 @@ runs:
           echo "is_newer=false" >> $GITHUB_OUTPUT
         else
           echo "is_newer=true" >> $GITHUB_OUTPUT
+        fi
