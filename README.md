@@ -27,7 +27,7 @@ compare-pypi-versions:
 
 ```yaml
 - name: Compare Versions
-  uses: TheNewThinkTank/gh-actions/.github/actions/compare-pypi-versions@v1.0.2
+  uses: TheNewThinkTank/gh-actions/.github/actions/compare-pypi-versions@v1.0.3
   with:
     package_name: my-package
     new_version: 1.2.3
