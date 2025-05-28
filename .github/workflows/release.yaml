@@ -1,0 +1,160 @@
+name: release
+
+on:
+  workflow_call:
+    inputs:
+      PACKAGE_NAME:
+        required: true
+        type: string
+      OWNER:
+        required: false
+        type: string
+        default: "TheNewThinkTank"
+      # TAP_NAME:  # Optional if you're using Homebrew
+
+env:
+  PACKAGE_NAME: ${{ inputs.PACKAGE_NAME }}
+  OWNER: ${{ inputs.OWNER }}
+  # TAP_NAME: "<# >"  # for homebrew publishing
+
+jobs:
+  details:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.release.outputs.new_version }}
+      suffix: ${{ steps.release.outputs.suffix }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+
+      # - name: clear-cache
+      #   run: rm -rf ~/.cache/pypa
+
+      - uses: actions/checkout@v4
+
+      - name: Extract tag and Details
+        id: release
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+            NEW_VERSION=$(echo $TAG_NAME | awk -F'-' '{print $1}')
+            SUFFIX=$(echo $TAG_NAME | grep -oP '[a-z]+[0-9]+' || echo "")
+            echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "suffix=$SUFFIX" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+            echo "Version is $NEW_VERSION"
+            echo "Suffix is $SUFFIX"
+            echo "Tag name is $TAG_NAME"
+          else
+            echo "No tag found"
+            exit 1
+          fi
+
+  check_pypi:
+    needs: details
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare Versions
+        uses: TheNewThinkTank/gh-actions/.github/actions/compare-pypi-versions@v1.0.3
+        with:
+          package_name: ${{ env.PACKAGE_NAME }}
+          new_version: ${{ needs.details.outputs.new_version }}
+
+  setup_and_build:
+    needs: [details, check_pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Set project version with Poetry
+        run: |
+          poetry version ${{ needs.details.outputs.new_version }}
+
+      - name: Install dependencies
+        run: poetry install --sync --no-interaction
+
+      - name: Build source and wheel distribution
+        run: |
+          poetry build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi_publish:
+    name: Upload release to PyPI
+    needs: [setup_and_build, details]
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  github_release:
+    name: Create GitHub Release
+    needs: [setup_and_build, details]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create GitHub Release
+        id: create_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ needs.details.outputs.tag_name }} dist/* --title ${{ needs.details.outputs.tag_name }} --generate-notes
+
+#   bump_homebrew_formula:
+#     name: Dispatch event to Repo B
+#     needs: [details, github_release, pypi_publish]
+#     runs-on: ubuntu-latest
+#     environment:
+#       name: release
+#     steps:
+#       - name: Dispatch Repository Dispatch event
+#         uses: peter-evans/repository-dispatch@v2
+#         with:
+#           token: ${{ secrets.BREW_TAP_TOKEN }}
+#           repository: ${{ env.OWNER }}/{{ env.#  }}
+#           event-type: "update-formula"
+#           client-payload: |-
+#             { 
+#               "formula_version": "${{env.FORMULA_VERSION}}", 
+#               "formula_url": "${{ env.FORMULA_URL }}", 
+#               "formula_name": "${{ env.FORMULA_NAME }}"
+#             }
+#         env:
+#           FORMULA_VERSION: ${{ needs.details.outputs.new_version }}
+#           FORMULA_NAME: ${{ env.PACKAGE_NAME }}
+#           FORMULA_URL: https://github.com/${{env.OWNER}}/${{env.PACKAGE_NAME}}/releases/download/${{ needs.details.outputs.new_version }}/${{env.PACKAGE_NAME}}-${{ needs.details.outputs.new_version }}.tar.gz
