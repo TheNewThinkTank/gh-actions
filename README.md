@@ -4,6 +4,53 @@ Reusable GitHub workflows and Actions
 
 ## Workflows usage examples
 
+### Main branch protection
+
+The [branch protection workflow](.github/workflows/branch-protection.yml) configures
+`main` in the calling repository. It requires at least one approving review,
+dismisses stale approvals, requires approval of the most recent reviewable push,
+and enforces protection for administrators. Existing status checks, push
+restrictions, higher approval counts, code-owner requirements, and other branch
+protection settings are preserved. No status checks are added automatically.
+
+1. Create a fine-grained personal access token with access to each target repository
+  and **Administration: Read and write** permission. The token owner must have
+  repository administration access. The default `GITHUB_TOKEN` cannot manage
+  branch protection.
+2. Store the token as a repository or organization Actions secret named
+  `SHARED_WORKFLOW_HOUSEKEEPING`, making it available to each target repository.
+3. After publishing this reusable workflow, add the following caller workflow to
+  `.github/workflows/branch-protection.yml` on `main` in each target repository:
+
+```yaml
+name: Configure Main Branch Protection
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  branch-protection:
+   uses: TheNewThinkTank/gh-actions/.github/workflows/branch-protection.yml@main
+   secrets:
+    SHARED_WORKFLOW_HOUSEKEEPING: ${{ secrets.SHARED_WORKFLOW_HOUSEKEEPING }}
+```
+
+Run **Configure Main Branch Protection** from the target repository's **Actions**
+tab. Replace `@main` with a published tag or commit SHA for a pinned version. The
+target repository must have a `main` branch and a GitHub plan that supports branch
+protection for its visibility. Cross-repository callers also need access to this
+repository's reusable workflows; configure Actions access if this repository is
+private or internal.
+
+The reusable workflow also supports **Run workflow** directly in this repository
+(or when copied into another repository); it always protects the repository where
+the run was triggered. Rerunning it reapplies the policy without removing existing
+status checks or push restrictions.
+
+### Release
+
 usage of `release.yml`:
 
 Create consuming workflow, e.g. `.github/workflows/project-release.yml`:

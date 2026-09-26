@@ -1,0 +1,88 @@
+name: Main Branch Protection
+
+on:
+  workflow_call:
+    secrets:
+      SHARED_WORKFLOW_HOUSEKEEPING:
+        description: 'Token with repository Administration read and write permission'
+        required: true
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  branch-protection:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: main-branch-protection-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Configure protection for main
+        env:
+          GH_TOKEN: ${{ secrets.SHARED_WORKFLOW_HOUSEKEEPING }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::error::Set the SHARED_WORKFLOW_HOUSEKEEPING secret to a token with repository Administration read and write permission."
+            exit 1
+          fi
+
+          endpoint="repos/${GITHUB_REPOSITORY}/branches/main/protection"
+          current_protection="${RUNNER_TEMP}/current-protection.json"
+          desired_protection="${RUNNER_TEMP}/desired-protection.json"
+
+          if ! gh api "${endpoint}" > "${current_protection}"; then
+            if ! jq -e '.message == "Branch not protected"' "${current_protection}" > /dev/null; then
+              echo "::error::Unable to read main branch protection. Check that main exists and the token has access to this repository."
+              exit 1
+            fi
+            printf '{}\n' > "${current_protection}"
+          fi
+
+          jq '
+            def actors:
+              {
+                users: [.users[]?.login],
+                teams: [.teams[]?.slug],
+                apps: [.apps[]?.slug]
+              };
+            {
+              required_status_checks: (
+                .required_status_checks
+                | if . == null then null else {
+                    strict: .strict,
+                    checks: [.checks[] | {context, app_id: (.app_id // -1)}]
+                  } end
+              ),
+              enforce_admins: true,
+              required_pull_request_reviews: (
+                (.required_pull_request_reviews // {})
+                | del(.url)
+                | . + {
+                    dismiss_stale_reviews: true,
+                    require_code_owner_reviews: (.require_code_owner_reviews // false),
+                    require_last_push_approval: true,
+                    required_approving_review_count: ([.required_approving_review_count // 0, 1] | max)
+                  }
+                | if .dismissal_restrictions != null then
+                    .dismissal_restrictions |= actors
+                  else del(.dismissal_restrictions) end
+                | if .bypass_pull_request_allowances != null then
+                    .bypass_pull_request_allowances |= actors
+                  else del(.bypass_pull_request_allowances) end
+              ),
+              restrictions: (.restrictions | if . == null then null else actors end),
+              required_linear_history: (.required_linear_history.enabled // false),
+              allow_force_pushes: (.allow_force_pushes.enabled // false),
+              allow_deletions: (.allow_deletions.enabled // false),
+              block_creations: (.block_creations.enabled // false),
+              required_conversation_resolution: (.required_conversation_resolution.enabled // false),
+              lock_branch: (.lock_branch.enabled // false),
+              allow_fork_syncing: (.allow_fork_syncing.enabled // false)
+            }
+          ' "${current_protection}" > "${desired_protection}"
+
+          gh api --method PUT "${endpoint}" --input "${desired_protection}" > /dev/null
+          echo "Main branch protection configured for ${GITHUB_REPOSITORY}."
